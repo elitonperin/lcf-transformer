@@ -227,6 +227,12 @@ class LCF2Encoder():
     self.opt.SDR = 3
     bert = BertModel.from_pretrained(self.pretrained_bert_name)
     model = LCF_BERT(bert, self.opt)
+    
+    if path_model is None:
+      print('try !gdown https://drive.google.com/uc?id=1gMcCF7e8DvfssLOsmOlS28pIFn61ewW5')
+      print("pass with parameter: lcf = LCF2Encoder(path_model='model_cpu_best.pt')")
+      raise NameError('Model not found.')
+
     m = torch.load(path_model, 
                    map_location=self.opt.device)
     model.load_state_dict(m)
