@@ -1,0 +1,9 @@
+!git config --global user.email "elitonperin@gmail.com"
+!git config --global user.name "Eliton Perin"
+!git status
+!git remote -v
+!git add ...
+!git commit -m '...'
+!git remote add origin https://elitonperin:<senha>@github.com/elitonperin/lcf-transformer.git
+!git remote rm origin
+!git push origin main

@@ -341,7 +341,7 @@ class LCF2Encoder():
         L += outs
         # L += [ bert_sample.cpu().numpy()[0] for bert_sample in outs ]
         # L += [ bert_sample[0] for bert_sample in outs ]
-        if profiling: print('List', time()-t0)
+        if self.profiling: print('List', time()-t0)
 
     L = [item.cpu().numpy() for item in L]
     return np.array(L)
@@ -363,7 +363,7 @@ class LCF2Encoder():
     L_bert_segments_ids = []
     L_text_bert_indices = []
 
-    for text, aspect in zip(texts, aspects):
+    for text, aspect in tqdm(zip(texts, aspects), total=len(texts)):
       text_raw = self.tokenizer.text_to_sequence(text)
       texts_raw_bert_indices = self.tokenizer.text_to_sequence("[CLS] " + text + " [SEP]")
       aspect_indices = self.tokenizer.text_to_sequence(aspect)
