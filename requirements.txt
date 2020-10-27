@@ -4,3 +4,7 @@ transformers
 sklearn
 dotmap
 wandb
+polyglot
+PyICU
+pycld2
+langdetect
