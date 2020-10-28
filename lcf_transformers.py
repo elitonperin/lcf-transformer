@@ -24,7 +24,68 @@ import random
 import pickle
 from tqdm.notebook import tqdm
 from time import time
+from text_utils import save_xml_seg, transform_data_in_T
 
+# The code is based on repository: https://github.com/yangheng95/LCF-ABSA
+
+class ABSADataset(Dataset):
+    def __init__(self, fname, tokenizer):
+        fin = open(fname, 'r', encoding='utf-8', newline='\n', errors='ignore')
+        lines = fin.readlines()
+        fin.close()
+
+        all_data = []
+        for i in range(0, len(lines), 3):
+            text_left, _, text_right = [s.lower().strip() for s in lines[i].partition("$T$")]
+            aspect = lines[i + 1].lower().strip()
+            polarity = lines[i + 2].strip()
+
+            text_raw_indices = tokenizer.text_to_sequence(text_left + " " + aspect + " " + text_right)
+            #text_raw_without_aspect_indices = tokenizer.text_to_sequence(text_left + " " + text_right)
+            #text_left_indices = tokenizer.text_to_sequence(text_left)
+            #text_left_with_aspect_indices = tokenizer.text_to_sequence(text_left + " " + aspect)
+            #text_right_indices = tokenizer.text_to_sequence(text_right, reverse=True)
+            #text_right_with_aspect_indices = tokenizer.text_to_sequence(" " + aspect + " " + text_right, reverse=True)
+            aspect_indices = tokenizer.text_to_sequence(aspect)
+            # left_context_len = np.sum(text_left_indices != 0)
+            aspect_len = np.sum(aspect_indices != 0)
+            # aspect_in_text = torch.tensor([left_context_len.item(), (left_context_len + aspect_len - 1).item()])
+            polarity = int(polarity) + 1
+
+            text_bert_indices = tokenizer.text_to_sequence('[CLS] ' + text_left + " " + aspect + " " + text_right + ' [SEP] ' + aspect + " [SEP]")
+            bert_segments_ids = np.asarray([0] * (np.sum(text_raw_indices != 0) + 2) + [1] * (aspect_len + 1))
+            bert_segments_ids = pad_and_truncate(bert_segments_ids, tokenizer.max_seq_len)
+
+            text_raw_bert_indices = tokenizer.text_to_sequence("[CLS] " + text_left + " " + aspect + " " + text_right + " [SEP]")
+            aspect_bert_indices = tokenizer.text_to_sequence("[CLS] " + aspect + " [SEP]")
+
+            a = ['text_bert_indices', 'bert_segments_ids', 'text_raw_bert_indices', 'aspect_bert_indices']
+
+            data = {
+                'text_bert_indices': text_bert_indices,
+                'bert_segments_ids': bert_segments_ids,
+                'text_raw_bert_indices': text_raw_bert_indices,
+                'aspect_bert_indices': aspect_bert_indices,
+                # 'text_raw_indices': text_raw_indices,
+                # 'text_raw_without_aspect_indices': text_raw_without_aspect_indices,
+                # 'text_left_indices': text_left_indices,
+                # 'text_left_with_aspect_indices': text_left_with_aspect_indices,
+                # 'text_right_indices': text_right_indices,
+                # 'text_right_with_aspect_indices': text_right_with_aspect_indices,
+                # 'aspect_indices': aspect_indices,
+                # 'aspect_in_text': aspect_in_text,
+                # 'polarity': polarity,
+            }
+
+            all_data.append(data)
+        self.data = all_data
+
+    def __getitem__(self, index):
+        return self.data[index]
+
+    def __len__(self):
+        return len(self.data)
+    
 # The code is based on repository: https://github.com/yangheng95/LCF-ABSA
 
 class SelfAttention(nn.Module):
@@ -345,6 +406,102 @@ class LCF2Encoder():
 
     L = [item.cpu().numpy() for item in L]
     return np.array(L)
+
+  def encode_data(self, data, mode='local', batch_size=64, profiling=False):
+    
+    # fazer um laço com processamento de texto já feito OK
+    # transformer usa 1000 de batch (512 dim. destilbert) 
+    
+    # validação das embeddings:
+    # lcf vs destilbert:
+    # sent. + asp => emb.  fazer a classificação com MLP
+    # sent. => emb. fazer a classificação com MLP
+
+    # texts_raw_bert_indices, bert_segments_ids, text_bert_indices, aspect_indices = self.process_texts_with_aspects(texts, aspects)
+
+    # texts_raw_bert_indices = texts_raw_bert_indices.to(self.opt.device)
+    # bert_segments_ids = bert_segments_ids.to(self.opt.device)
+    # text_bert_indices = text_bert_indices.to(self.opt.device)
+    # aspect_indices = aspect_indices.to(self.opt.device)
+    print('preprocessing...')
+    data_train = self.init_dataset(data, pandas=True, batch_size=batch_size)
+    # del data
+    if self.eval_mode:
+      self.model.eval()
+      self.model.bert_spc.eval()
+      self.model.bert_local.eval()
+      self.model.bert_SA.eval()
+    print('encoding...')
+    with torch.no_grad():
+      L = []
+      # for i in tqdm(range(0, len(texts), batch)):
+      for t_batch, t_sample_batched in enumerate(tqdm(data_train)):
+        t_inputs = [t_sample_batched[col].to(self.opt.device) for col in self.inputs_cols]
+        outs = None
+        if mode == 'local':
+          # outs = self.local(text_bert_indices[i:i+batch])
+          outs = self.local(t_inputs[0])
+        elif mode == 'spc':
+          # outs = self.spc(text_bert_indices[i:i+batch], bert_segments_ids[i:i+batch])        
+          outs = self.spc(t_inputs[0], t_inputs[1])        
+        elif mode == 'local+spc':
+          # outs = self.local_spc_attention(texts_raw_bert_indices[i:i+batch], 
+          #                                 bert_segments_ids[i:i+batch], 
+          #                                 text_bert_indices[i:i+batch], 
+          #                                 aspect_indices[i:i+batch])
+          outs = self.local_spc_attention(t_inputs[0], 
+                                          t_inputs[1], 
+                                          t_inputs[2], 
+                                          t_inputs[3])
+        elif mode == 'lcf_bert':
+          embeddings_type = self.embeddings_type
+          self.embeddings_type = None
+          # self_attention_out = self.local_spc_attention(texts_raw_bert_indices[i:i+batch], 
+          #                                               bert_segments_ids[i:i+batch], 
+          #                                               text_bert_indices[i:i+batch], 
+          #                                               aspect_indices[i:i+batch])
+          self_attention_out = self.local_spc_attention(t_inputs[0], 
+                                          t_inputs[1], 
+                                          t_inputs[2], 
+                                          t_inputs[3])
+          self.embeddings_type = embeddings_type
+          outs = self.model.bert_pooler(self_attention_out)
+        else:
+          raise 'Not configured for ' + mode
+        t0 = time()
+        # L += outs
+        # print(torch.cuda.memory_summary(self.opt.device))
+        # self.get_gpu_stats()
+        L += [ bert_sample.cpu().numpy() for bert_sample in outs ]
+        del outs
+        torch.cuda.empty_cache()
+        # L += [ bert_sample[0] for bert_sample in outs ]
+        if self.profiling: print('List', time()-t0)
+
+      # L = [item.cpu().numpy() for item in L]
+      return np.array(L)
+    
+  def init_dataset(self, path_or_data, pandas=False, batch_size=64):
+    if pandas:
+      path_or_data = transform_data_in_T(path_or_data)
+      save_xml_seg(path_or_data, file_name='data')
+      path_or_data = 'data.txt'
+    dataset = ABSADataset(path_or_data, self.tokenizer)
+    data = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
+
+    self.inputs_cols = ['text_bert_indices', 'bert_segments_ids', 'text_raw_bert_indices', 'aspect_bert_indices']
+    return data
+    
+  def get_gpu_stats(self):
+    import torch
+    import gc
+    for obj in gc.get_objects():
+      try:
+        if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+          print(type(obj), obj.size())
+      except:
+          pass
+
   
   def get_aspect_embeddings():
     ''''TO DO'''
