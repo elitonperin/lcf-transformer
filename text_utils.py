@@ -74,7 +74,7 @@ def transform_sentence_in_T(aspect, text):
 
 def transform_data_in_T(data):
   t_sents = []
-  for a, s in zip(data['aspect_name'], data['snippet']):  
+  for a, s in zip(data['aspect'], data['snippet']):  
     t_sent = transform_sentence_in_T(a, s)
     t_sents.append(t_sent)
   data['T_sent'] = t_sents
@@ -109,14 +109,14 @@ def preprocessing_aspects(x, lang='en'):
   return x
 
 def preprocessing_dataframes(data, lang='en'):
-  data.drop_duplicates(subset=['snippet', 'aspect_name'], inplace=True)
+  data.drop_duplicates(subset=['snippet', 'aspect'], inplace=True)
   data['snippet'] = data['snippet'].progress_apply(preprocessing_snippet, lang=lang)
-  data['aspect_name'] = data['aspect_name'].progress_apply(preprocessing_aspects, lang=lang)
-  data.drop_duplicates(subset=['snippet', 'aspect_name'], inplace=True)
+  data['aspect'] = data['aspect'].progress_apply(preprocessing_aspects, lang=lang)
+  data.drop_duplicates(subset=['snippet', 'aspect'], inplace=True)
   return data
 
 def save_xml_seg(data, file_name='train', frac=1):
-  new_data = data[[ 'T_sent', 'aspect_name', 'sentiment']]
+  new_data = data[[ 'T_sent', 'aspect', 'sentiment']]
   # new_data['T_sent'] = new_data['T_sent'].str.replace('\n', '')
   new_data = new_data.replace('\\n', ' ', regex=True)
   new_data = new_data.dropna()
